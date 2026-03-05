@@ -16,6 +16,9 @@ java_swing_frontend/src/ui/BoardPanel.class
 java_swing_frontend/src/engine/BackendBridge.class
 java_swing_frontend/src/ui/BoardPanel$1.class
 
+*/bin
+*/target
+
 # macOS system files
 .DS_Store
 .AppleDouble

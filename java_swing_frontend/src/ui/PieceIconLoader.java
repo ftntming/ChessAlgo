@@ -19,7 +19,41 @@ public class PieceIconLoader {
                 + Character.toLowerCase(code.charAt(0))
                 + ".png";
 
-        ImageIcon icon = new ImageIcon("java_swing_frontend/resources/" + fileName);
+        ImageIcon icon = null;
+        // First, try loading from the classpath: /resources/<fileName>
+        java.net.URL url = PieceIconLoader.class.getResource("/resources/" + fileName);
+        if (url != null) {
+            icon = new ImageIcon(url);
+        } else {
+            // Fallbacks for common development layouts (file system paths)
+            String[] candidates = new String[] {
+                    "resources/" + fileName,
+                    "java_swing_frontend/resources/" + fileName,
+                    "./resources/" + fileName
+            };
+            for (String p : candidates) {
+                java.io.File f = new java.io.File(p);
+                if (f.isFile()) {
+                    icon = new ImageIcon(f.getAbsolutePath());
+                    break;
+                }
+            }
+
+            // As a last-ditch fallback, try classloader without leading slash
+            if (icon == null) {
+                url = PieceIconLoader.class.getResource("resources/" + fileName);
+                if (url != null) {
+                    icon = new ImageIcon(url);
+                }
+            }
+        }
+
+        if (icon == null) {
+            // If still not found, create an empty icon to avoid NPEs and log the missing file.
+            System.err.println("[PieceIconLoader] Missing piece icon: " + fileName);
+            icon = new ImageIcon();
+        }
+
         cache.put(code, icon);
         return icon;
     }

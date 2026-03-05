@@ -25,6 +25,18 @@ public class ChessApp {
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
         } catch (Exception ignored) {}
 
+        // If the native library failed to load, show an error dialog and exit.
+        if (!BackendBridge.isLibraryLoaded()) {
+            final String err = BackendBridge.getLibraryLoadError();
+            SwingUtilities.invokeLater(() -> {
+                JOptionPane.showMessageDialog(null,
+                        "Native library failed to load:\n" + (err == null ? "Unknown error" : err),
+                        "Native library error", JOptionPane.ERROR_MESSAGE);
+                System.exit(1);
+            });
+            return;
+        }
+
         SwingUtilities.invokeLater(() -> {
             JFrame frame = new JFrame("Java Chess");
             frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
