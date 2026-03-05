@@ -57,10 +57,18 @@ std::string moveToAlgebraic(const Move& m) {
 
 int main(int argc, char* argv[]) {
     std::string fenFilePath = "fen-files/chess_position.fen";
+    int searchDepth = 4; // Default to depth 4 for reasonable speed
 
-    // Allow override from command line argument
+    // Allow override from command line arguments
     if (argc > 1) {
         fenFilePath = argv[1];
+    }
+    if (argc > 2) {
+        searchDepth = std::atoi(argv[2]);
+        if (searchDepth < 1 || searchDepth > 10) {
+            std::cerr << "[WARNING] Invalid depth " << searchDepth << ", using default 4" << std::endl;
+            searchDepth = 4;
+        }
     }
 
     try {
@@ -71,11 +79,10 @@ int main(int argc, char* argv[]) {
         Board board;
         board.loadFEN(fen);
 
-        constexpr int kSearchDepth = 8;
         int moveCount = 0;
-        constexpr int kMaxMoves = 50; // Safety limit to prevent infinite loops
+        constexpr int kMaxMoves = 20; // Safety limit to prevent infinite loops
 
-        std::cout << "\n[START] Game simulation started" << std::endl;
+        std::cout << "\n[START] Game simulation started (depth=" << searchDepth << ")" << std::endl;
         std::cout << "======================================" << std::endl;
 
         while (moveCount < kMaxMoves) {
@@ -97,8 +104,8 @@ int main(int argc, char* argv[]) {
             }
 
             // Get suggested move from AI
-            std::cout << "  Computing best move (depth=" << kSearchDepth << ")..." << std::endl;
-            Move suggestedMove = Search::findBestMove(board, whiteToMove, kSearchDepth);
+            std::cout << "  Computing best move (depth=" << searchDepth << ")..." << std::endl;
+            Move suggestedMove = Search::findBestMove(board, whiteToMove, searchDepth);
 
             if (legalMoves.empty()) {
                 std::cout << "[ERROR] No legal moves found, but board is not in checkmate?" << std::endl;
