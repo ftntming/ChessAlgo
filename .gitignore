@@ -16,7 +16,9 @@ java_swing_frontend/src/ui/BoardPanel.class
 java_swing_frontend/src/engine/BackendBridge.class
 java_swing_frontend/src/ui/BoardPanel$1.class
 
+*/test/test_*/
 */test/test_*
+!test_*.cpp
 */bin
 */target
 
