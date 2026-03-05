@@ -14,6 +14,8 @@ ENGINE_SRC = $(filter-out ../src/main.cpp, $(wildcard ../src/*.cpp) ../src/piece
 # Build all individual test executables
 all: $(TEST_EXES)
 	@echo "Built all test executables: $(TEST_EXES)"
+	# run all tests after building
+	$(MAKE) run_all
 
 # Individual test executables - each test_*.cpp as its own binary
 test_%: test_%.cpp $(ENGINE_SRC)
