@@ -90,6 +90,11 @@ public class BoardPanel extends JPanel {
         suggestedTo = null;
     }
 
+    public void resetForNewPosition() {
+        resetSelection();
+        allMovesCache = null;  // Invalidate cached moves for new position
+    }
+
     private void setupStartingPosition() {
         board[0] = new String[] { "r", "n", "b", "q", "k", "b", "n", "r" };
         board[1] = new String[] { "p", "p", "p", "p", "p", "p", "p", "p" };

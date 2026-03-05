@@ -3,14 +3,21 @@ package ui;
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
 import java.awt.Point;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 
 import javax.swing.JButton;
+import javax.swing.JFileChooser;
 import javax.swing.JFrame;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
+import javax.swing.filechooser.FileNameExtensionFilter;
 
 import engine.BackendBridge;
 
@@ -64,17 +71,86 @@ public class ChessApp {
 
             JTextField fenField = new JTextField("", 30);
             JButton loadButton = new JButton("Load FEN");
+            // New behavior: open a file chooser and load selected .fen file
             loadButton.addActionListener(e -> {
-                String fen = fenField.getText().trim();
-                boardPanel.loadFEN(fen);
+                JFileChooser fileChooser = new JFileChooser();
+                fileChooser.setDialogTitle("Load FEN from file");
+                fileChooser.setFileFilter(new FileNameExtensionFilter("FEN files (*.fen)", "fen"));
+                int result = fileChooser.showOpenDialog(frame);
+                if (result != JFileChooser.APPROVE_OPTION) return;
 
-                BackendBridge.loadFEN(fen);
+                File selectedFile = fileChooser.getSelectedFile();
+                try {
+                    String fen = new String(java.nio.file.Files.readAllBytes(selectedFile.toPath()), StandardCharsets.UTF_8).trim();
+                    if (fen.isEmpty()) {
+                        JOptionPane.showMessageDialog(frame, "Selected FEN file is empty", "Empty FEN", JOptionPane.WARNING_MESSAGE);
+                        return;
+                    }
+
+                    BackendBridge.loadFEN(fen);
+
+                    // Fetch the board state from the native backend to sync the UI
+                    String[][] boardState = BackendBridge.getBoardState();
+                    if (boardState != null) {
+                        boardPanel.updateBoard(boardState);
+                    } else {
+                        JOptionPane.showMessageDialog(frame, "Failed to load FEN", "Error", JOptionPane.ERROR_MESSAGE);
+                    }
+
+                    // Parse FEN to get white-to-move flag
+                    String[] parts = fen.split(" ");
+                    if (parts.length > 1) {
+                        ChessApp.whiteToMove = parts[1].equalsIgnoreCase("w");
+                    }
+
+                    boardPanel.resetForNewPosition();
+                    boardPanel.repaint();
+                } catch (IOException ex) {
+                    JOptionPane.showMessageDialog(frame, "Error reading FEN file: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+                } catch (Exception ex) {
+                    JOptionPane.showMessageDialog(frame, "Error loading FEN: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+                }
+            });
+
+            JButton saveFenButton = new JButton("Save FEN");
+            saveFenButton.addActionListener(e -> {
+                JFileChooser fileChooser = new JFileChooser();
+                fileChooser.setDialogTitle("Save FEN to File");
+                fileChooser.setSelectedFile(new File("chess_position.fen"));
+                fileChooser.setFileFilter(new FileNameExtensionFilter("FEN files (*.fen)", "fen"));
+
+                int result = fileChooser.showSaveDialog(frame);
+                if (result == JFileChooser.APPROVE_OPTION) {
+                    File selectedFile = fileChooser.getSelectedFile();
+
+                    try {
+                        // Get the current FEN from the native backend
+                        String fen = generateFenFromBoard();
+
+                        // Write FEN to file
+                        try (BufferedWriter writer = new BufferedWriter(new FileWriter(selectedFile))) {
+                            writer.write(fen);
+                            writer.newLine();
+                        }
+
+                        JOptionPane.showMessageDialog(frame,
+                            "FEN saved successfully to:\n" + selectedFile.getAbsolutePath(),
+                            "Success",
+                            JOptionPane.INFORMATION_MESSAGE);
+                    } catch (IOException ex) {
+                        JOptionPane.showMessageDialog(frame,
+                            "Error saving FEN: " + ex.getMessage(),
+                            "Error",
+                            JOptionPane.ERROR_MESSAGE);
+                    }
+                }
             });
 
             JPanel buttonPanel = new JPanel();
             buttonPanel.setLayout(new FlowLayout());
             buttonPanel.add(fenField);
             buttonPanel.add(loadButton);
+            buttonPanel.add(saveFenButton);
             buttonPanel.add(suggestButton);
 
             frame.add(buttonPanel, BorderLayout.SOUTH);
@@ -122,5 +198,48 @@ public class ChessApp {
         if (BackendBridge.isCheckmate()) {
             JOptionPane.showMessageDialog(null, (whiteToMove ? "White" : "Black") + " wins by checkmate!");
         }
+    }
+
+    private static String generateFenFromBoard() {
+        String[][] board = BackendBridge.getBoardState();
+        StringBuilder fen = new StringBuilder();
+
+        if (board == null) {
+            throw new IllegalStateException("Could not fetch board state from backend");
+        }
+
+        // Build the piece placement part of the FEN
+        for (int r = 0; r < 8; r++) {
+            if (r > 0) {
+                fen.append("/");
+            }
+
+            int emptyCount = 0;
+            for (int c = 0; c < 8; c++) {
+                String piece = board[r][c];
+                if (piece == null || piece.isEmpty()) {
+                    emptyCount++;
+                } else {
+                    if (emptyCount > 0) {
+                        fen.append(emptyCount);
+                        emptyCount = 0;
+                    }
+                    fen.append(piece);
+                }
+            }
+
+            if (emptyCount > 0) {
+                fen.append(emptyCount);
+            }
+        }
+
+        // Add active color
+        fen.append(" ");
+        fen.append(whiteToMove ? "w" : "b");
+
+        // Add simplified castling rights, en passant, halfmove, fullmove
+        fen.append(" - - 0 1");
+
+        return fen.toString();
     }
 }

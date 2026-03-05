@@ -4,6 +4,7 @@
 #include "pieces/pieces.h"  
 #include <iostream>
 #include <sstream>
+#include <fstream>
 #include <cctype>
 
 namespace {
@@ -81,6 +82,51 @@ void Board::loadFEN(const std::string& fen) {
     }
 
     whiteToMove = (activeColor == "w");
+}
+
+bool Board::saveFEN(const char* file_path) const {
+    std::ofstream file(file_path);
+    if (!file.is_open()) {
+        std::cerr << "[ERROR] saveFEN: Could not open file: " << file_path << std::endl;
+        return false;
+    }
+
+    // Build the board part of the FEN string
+    std::string fenBoard;
+    for (int r = 0; r < 8; ++r) {
+        if (r > 0) {
+            fenBoard += '/';
+        }
+
+        int emptyCount = 0;
+        for (int c = 0; c < 8; ++c) {
+            Piece* piece = board[r][c];
+            if (piece == nullptr) {
+                emptyCount++;
+            } else {
+                if (emptyCount > 0) {
+                    fenBoard += std::to_string(emptyCount);
+                    emptyCount = 0;
+                }
+                fenBoard += piece->getSymbol();
+            }
+        }
+
+        if (emptyCount > 0) {
+            fenBoard += std::to_string(emptyCount);
+        }
+    }
+
+    // Build the full FEN string
+    std::string fen = fenBoard + " ";
+    fen += (whiteToMove ? "w" : "b");
+    fen += " - - 0 1"; // Castling rights, en passant, halfmove clock, fullmove number (simplified)
+
+    file << fen << std::endl;
+    file.close();
+
+    std::cerr << "[INFO] saveFEN: Saved FEN to " << file_path << std::endl;
+    return true;
 }
 
 void Board::removePiece(int row, int col) {

@@ -16,6 +16,9 @@ public:
     // Load a position using a FEN string
     void loadFEN(const std::string& fen);
 
+    // Save the current board position to a FEN file
+    bool saveFEN(const char* file_path) const;
+
     // Print the board to console (debugging)
     void print() const;
 
