@@ -12,9 +12,11 @@ import java.nio.charset.StandardCharsets;
 import javax.swing.JButton;
 import javax.swing.JFileChooser;
 import javax.swing.JFrame;
+import javax.swing.JMenu;
+import javax.swing.JMenuBar;
+import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
-import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import javax.swing.filechooser.FileNameExtensionFilter;
@@ -55,24 +57,12 @@ public class ChessApp {
             boardPanel = new BoardPanel();
             frame.add(boardPanel, BorderLayout.CENTER);
 
-            // Controls panel (bottom)
-            JButton suggestButton = new JButton("Suggest Move");
-            // When clicked: disable the button, request a suggestion asynchronously, re-enable when done
-            suggestButton.addActionListener(function -> {
-                suggestButton.setEnabled(false);
-                boardPanel.generateSuggestedMove(() -> {
-                    // This callback runs on the EDT (BoardPanel invokes it via SwingUtilities.invokeLater)
-                    try {
-                        suggestButton.setEnabled(true);
-                    } catch (Throwable ignored) {
-                    }
-                });
-            });
+            // Create menu bar
+            JMenuBar menuBar = new JMenuBar();
+            JMenu fileMenu = new JMenu("File");
 
-            JTextField fenField = new JTextField("", 30);
-            JButton loadButton = new JButton("Load FEN");
-            // New behavior: open a file chooser and load selected .fen file
-            loadButton.addActionListener(e -> {
+            JMenuItem loadFenItem = new JMenuItem("Load FEN");
+            loadFenItem.addActionListener(e -> {
                 JFileChooser fileChooser = new JFileChooser();
                 fileChooser.setDialogTitle("Load FEN from file");
                 fileChooser.setFileFilter(new FileNameExtensionFilter("FEN files (*.fen)", "fen"));
@@ -112,8 +102,8 @@ public class ChessApp {
                 }
             });
 
-            JButton saveFenButton = new JButton("Save FEN");
-            saveFenButton.addActionListener(e -> {
+            JMenuItem saveFenItem = new JMenuItem("Save FEN");
+            saveFenItem.addActionListener(e -> {
                 JFileChooser fileChooser = new JFileChooser();
                 fileChooser.setDialogTitle("Save FEN to File");
                 fileChooser.setSelectedFile(new File("chess_position.fen"));
@@ -146,11 +136,32 @@ public class ChessApp {
                 }
             });
 
+            JMenuItem exitItem = new JMenuItem("Exit");
+            exitItem.addActionListener(e -> System.exit(0));
+
+            fileMenu.add(loadFenItem);
+            fileMenu.add(saveFenItem);
+            fileMenu.addSeparator();
+            fileMenu.add(exitItem);
+
+            menuBar.add(fileMenu);
+            frame.setJMenuBar(menuBar);
+
+            // Controls panel (bottom) - only Suggest Move button
+            JButton suggestButton = new JButton("Suggest Move");
+            suggestButton.addActionListener(function -> {
+                suggestButton.setEnabled(false);
+                boardPanel.generateSuggestedMove(() -> {
+                    // This callback runs on the EDT (BoardPanel invokes it via SwingUtilities.invokeLater)
+                    try {
+                        suggestButton.setEnabled(true);
+                    } catch (Throwable ignored) {
+                    }
+                });
+            });
+
             JPanel buttonPanel = new JPanel();
             buttonPanel.setLayout(new FlowLayout());
-            buttonPanel.add(fenField);
-            buttonPanel.add(loadButton);
-            buttonPanel.add(saveFenButton);
             buttonPanel.add(suggestButton);
 
             frame.add(buttonPanel, BorderLayout.SOUTH);

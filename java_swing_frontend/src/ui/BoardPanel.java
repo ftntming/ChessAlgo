@@ -29,6 +29,10 @@ public class BoardPanel extends JPanel {
     // NEW: loading flag for suggested-move request to avoid concurrent requests
     private volatile boolean loadingSuggestedMove = false;
 
+    private boolean isBusy() {
+        return loadingAllMoves || loadingSuggestedMove;
+    }
+
     public BoardPanel() {
         setupStartingPosition();
 
@@ -44,8 +48,14 @@ public class BoardPanel extends JPanel {
 
     // TODO: There is a bug where you can (ghost) move pieces while C++ is running the search
     // It completely messes up everything else and prevents future movement of pieces.
-    // Likely due to desync of which colour is to move 
+    // Likely due to desync of which colour is to move
     private void handleClick(int row, int col) {
+        // Freeze board interactions while async operations are in progress
+        if (isBusy()) {
+            System.err.println("[DEBUG] Board is busy, ignoring click at (" + row + ", " + col + ")");
+            return;
+        }
+
         if (!isInBounds(row, col)) {
             resetSelection();
             repaint();
@@ -163,6 +173,12 @@ public class BoardPanel extends JPanel {
                     g.drawImage(icon.getImage(), col * TILE_SIZE, row * TILE_SIZE, TILE_SIZE, TILE_SIZE, null);
                 }
             }
+        }
+
+        // Visual indicator: semi-transparent overlay when board is busy
+        if (isBusy()) {
+            g.setColor(new Color(128, 128, 128, 80)); // semi-transparent gray
+            g.fillRect(0, 0, 8 * TILE_SIZE, 8 * TILE_SIZE);
         }
     }
 
@@ -367,9 +383,9 @@ public class BoardPanel extends JPanel {
         if (parts.length > 1) {
             boolean whiteToMove = parts[1].equalsIgnoreCase("w");
             ChessApp.whiteToMove = whiteToMove;
-            
+
         }
-        
+
         // reset
         selectedSquare = null;
         legalMoves.clear();
@@ -386,3 +402,4 @@ public class BoardPanel extends JPanel {
         return row >= 0 && row < 8 && col >= 0 && col < 8;
     }
 }
+
