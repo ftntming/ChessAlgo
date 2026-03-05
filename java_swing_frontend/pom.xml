@@ -14,6 +14,15 @@
         <maven.compiler.target>1.8</maven.compiler.target>
     </properties>
 
+    <dependencies>
+        <!-- JNA is used to perform low-level libc calls to capture native stdout into Java -->
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna</artifactId>
+            <version>5.13.0</version>
+        </dependency>
+    </dependencies>
+
     <build>
         <!-- Use the existing layout: sources are in ./src and resources are in ./resources -->
         <sourceDirectory>${project.basedir}/src</sourceDirectory>

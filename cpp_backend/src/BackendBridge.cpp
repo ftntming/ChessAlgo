@@ -88,7 +88,7 @@ JNIEXPORT jobjectArray JNICALL Java_engine_BackendBridge_getLegalMoves(JNIEnv* e
 }
 
 JNIEXPORT jstring JNICALL Java_engine_BackendBridge_getSuggestedMove(JNIEnv* env, jclass) {
-    Move suggested = Search::findBestMove(board, board.getWhiteToMove(), 8);
+    Move suggested = Search::findBestMove(board, board.getWhiteToMove(), 4);
 
     std::string moveStr = moveToAlgebraic(suggested);
     return env->NewStringUTF(moveStr.c_str());

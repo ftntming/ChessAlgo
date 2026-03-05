@@ -1,6 +1,14 @@
 package engine;
 
 import java.io.File;
+import java.nio.charset.StandardCharsets;
+
+// Add JNA imports for performing low-level dup2/pipe/read operations to capture native stdout
+import com.sun.jna.Library;
+import com.sun.jna.Memory;
+import com.sun.jna.Native;
+import com.sun.jna.Platform;
+import com.sun.jna.Pointer;
 
 public class BackendBridge {
     // Tracks whether the native library was successfully loaded
@@ -8,10 +16,67 @@ public class BackendBridge {
     // Stores the error message if loading failed
     private static String libraryLoadError = null;
 
+    // Small JNA-facing interface for libc functions we need to duplicate stdout into a pipe
+    private interface CLib extends Library {
+        CLib INSTANCE = Native.load(Platform.C_LIBRARY_NAME, CLib.class);
+        int pipe(int[] fds);
+        int dup2(int oldfd, int newfd);
+        int close(int fd);
+        int read(int fd, Pointer buf, int count);
+    }
+
     static {
         final String libName = "ChessEngine";
         final String mappedName = System.mapLibraryName(libName);
         String envPath = System.getenv("CHESS_ENGINE_LIB_PATH");
+
+        // Attempt to redirect native stdout -> Java by creating a pipe and dup2'ing stdout
+        try {
+            try {
+                CLib c = CLib.INSTANCE;
+                int[] fds = new int[2];
+                if (c.pipe(fds) == 0) {
+                    final int readFd = fds[0];
+                    int writeFd = fds[1];
+
+                    // Redirect stdout (fd 1) to the pipe's write end. After dup2, close the original write fd.
+                    if (c.dup2(writeFd, 1) != -1) {
+                        c.close(writeFd);
+
+                        // Start a daemon thread that reads from the read end and forwards to Java System.out
+                        Thread t = new Thread(() -> {
+                            try {
+                                Memory buf = new Memory(4096);
+                                while (true) {
+                                    int r = c.read(readFd, buf, 4096);
+                                    if (r <= 0) break;
+                                    byte[] b = buf.getByteArray(0, r);
+                                    String s = new String(b, StandardCharsets.UTF_8);
+                                    // Print to Java stdout so the UI or logs can see native output
+                                    System.out.print(s);
+                                }
+                            } catch (Throwable th) {
+                                System.err.println("Native stdout reader thread failed: " + th);
+                            } finally {
+                                try { c.close(readFd); } catch (Throwable ignore) {}
+                            }
+                        }, "NativeStdoutReader");
+                        t.setDaemon(true);
+                        t.start();
+                    } else {
+                        // dup2 failed; close fds
+                        try { c.close(fds[0]); } catch (Throwable ignore) {}
+                        try { c.close(fds[1]); } catch (Throwable ignore) {}
+                    }
+                }
+            } catch (Throwable t) {
+                // Non-fatal: if we can't redirect, continue — native stdout will go to the process stdout as usual
+                System.err.println("Failed to set up native stdout capture: " + t);
+            }
+        } catch (Throwable outer) {
+            // swallow — this redirection is optional
+            System.err.println("Unexpected error during native stdout redirection: " + outer);
+        }
 
         // We'll try the environment path first (if provided). It may be either a file path
         // pointing directly to the shared library, or a directory that contains the library.
