@@ -14,8 +14,7 @@ SRC = cpp_backend/src/BackendBridge.cpp \
 
 TARGET = libChessEngine.dylib
 
-JAVA_SRC = $(wildcard java_swing_frontend/src/ui/*.java java_swing_frontend/src/model/*.java java_swing_frontend/src/engine/*.java)
-JAVA_BIN = java_swing_frontend/bin
+JAVA_SRC = java_swing_frontend
 
 .PHONY: all java test clean
 
@@ -28,8 +27,8 @@ $(TARGET):
 
 java:
 	@echo "🔨 Compiling Java sources..."
-	mkdir -p $(JAVA_BIN)
-	javac -d $(JAVA_BIN) $(JAVA_SRC)
+	# go into $(JAVA_SRC) and do "mvn -Dexec.mainClass=ui.ChessApp exec:java"
+	cd $(JAVA_SRC) && CHESS_ENGINE_LIB_PATH=`pwd`/../$(TARGET) mvn -Dexec.mainClass=ui.ChessApp exec:java
 	@echo "Java build complete."
 
 test:
@@ -38,6 +37,5 @@ test:
 clean:
 	rm -f $(TARGET)
 	@echo "🧹 Cleaned: $(TARGET)"
-	$(MAKE) -C cpp_backend/test clean
-	rm -rf $(JAVA_BIN)/*
+    # go into $(JAVA_SRC) and do "mvn clean"
 	@echo "🧹 Cleaned: Java bin folder"
