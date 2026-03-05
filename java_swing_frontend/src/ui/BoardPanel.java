@@ -10,6 +10,7 @@ import java.util.ArrayList;
 
 import javax.swing.ImageIcon;
 import javax.swing.JPanel;
+import javax.swing.SwingUtilities;
 
 public class BoardPanel extends JPanel {
     private static final int TILE_SIZE = 64;
@@ -20,6 +21,13 @@ public class BoardPanel extends JPanel {
     private Point suggestedTo = null;
 
     private java.util.List<Point> legalMoves = new ArrayList<>();
+
+    // Async legal-move cache + loading flag
+    private volatile String[] allMovesCache = null;
+    private volatile boolean loadingAllMoves = false;
+
+    // NEW: loading flag for suggested-move request to avoid concurrent requests
+    private volatile boolean loadingSuggestedMove = false;
 
     public BoardPanel() {
         setupStartingPosition();
@@ -38,6 +46,12 @@ public class BoardPanel extends JPanel {
     // It completely messes up everything else and prevents future movement of pieces.
     // Likely due to desync of which colour is to move 
     private void handleClick(int row, int col) {
+        if (!isInBounds(row, col)) {
+            resetSelection();
+            repaint();
+            return;
+        }
+
         if (selectedSquare == null) { // no square currently selected, select current if valid
             java.util.List<Point> foundMoves = getLegalDestinationsFrom(row, col);
             if (foundMoves.isEmpty()) return;
@@ -89,6 +103,8 @@ public class BoardPanel extends JPanel {
 
     public void updateBoard(String[][] newBoard) {
         this.board = newBoard;
+        // Board changed; invalidate cached legal moves so next request triggers a fresh fetch
+        allMovesCache = null;
         repaint();
     }
 
@@ -145,21 +161,28 @@ public class BoardPanel extends JPanel {
         }
     }
 
-    private java.util.List<Point> getLegalDestinationsFrom(int row, int col) {
-        // LATER: Implement getting legal moves from just one square instead of having to filter legal moves for all squares
-        if (board[row][col] == null || Character.isUpperCase(board[row][col].charAt(0)) != ChessApp.whiteToMove())
-                return new ArrayList<>(); // not legal to "move" an empty square or piece of different colour
-
+    // NEW: helper which uses the cached allMovesCache without triggering fetch
+    private java.util.List<Point> getLegalDestinationsFromCached(int row, int col) {
         java.util.List<Point> moves = new ArrayList<>();
+        if (!isInBounds(row, col)) return moves;
 
-        String[] allMoves = engine.BackendBridge.getLegalMoves();
+        String piece = board[row][col];
+        if (piece == null || Character.isUpperCase(piece.charAt(0)) != ChessApp.whiteToMove()) {
+            return moves;
+        }
+
+        String[] allMoves = allMovesCache; // read volatile once
+        if (allMoves == null) return moves;
 
         String fromCoord = toAlgebraic(new Point(row, col));
 
         for (String move : allMoves) {
-            if (move.startsWith(fromCoord)) {
-                String to = move.substring(2, 4);
-                Point toPoint = fromAlgebraic(to);
+            if (move == null || move.length() < 4) continue;
+            if (!move.startsWith(fromCoord)) continue;
+
+            String to = move.substring(2, 4);
+            Point toPoint = fromAlgebraic(to);
+            if (toPoint != null && isInBounds(toPoint.x, toPoint.y)) {
                 moves.add(toPoint);
             }
         }
@@ -167,7 +190,53 @@ public class BoardPanel extends JPanel {
         return moves;
     }
 
-    // Inverse of below 
+    // Modified to use async fetching: returns cached results if present; otherwise triggers background fetch and returns empty list
+    private java.util.List<Point> getLegalDestinationsFrom(int row, int col) {
+        java.util.List<Point> cached = getLegalDestinationsFromCached(row, col);
+        if (!cached.isEmpty()) {
+            return cached;
+        }
+
+        // If cache empty and we're not already loading, start loading in background
+        if (allMovesCache == null && !loadingAllMoves) {
+            fetchLegalMovesAsync();
+        }
+
+        return new ArrayList<>(); // return empty for now; UI will update when background fetch completes
+    }
+
+    // Runs engine.BackendBridge.getLegalMoves() on a background thread and updates UI when done
+    private synchronized void fetchLegalMovesAsync() {
+        if (loadingAllMoves) return;
+        loadingAllMoves = true;
+
+        Thread t = new Thread(() -> {
+            try {
+                String[] moves = null;
+                try {
+                    moves = engine.BackendBridge.getLegalMoves();
+                } catch (Throwable tInner) {
+                    System.err.println("Error fetching legal moves from backend: " + tInner);
+                }
+
+                allMovesCache = moves; // may be null on error
+
+            } finally {
+                loadingAllMoves = false;
+                // Update UI on EDT: recompute legalMoves for current selection and repaint
+                SwingUtilities.invokeLater(() -> {
+                    if (selectedSquare != null) {
+                        legalMoves = getLegalDestinationsFromCached(selectedSquare.x, selectedSquare.y);
+                    }
+                    repaint();
+                });
+            }
+        }, "LegalMovesFetcher");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    // Inverse of below
     private static String toAlgebraic(Point p) {
         char file = (char) ('a' + p.y);
         int rank = 8 - p.x;
@@ -178,19 +247,87 @@ public class BoardPanel extends JPanel {
     // eg. "a2" -> Point(6, 0) since row 6 is the second to last row and column 0 is the 'a' file
     // Note: On chessboard, row 1 is on the BOTTOM
     private static Point fromAlgebraic(String s) {
-        int col = s.charAt(0) - 'a';
-        int row = 8 - Character.getNumericValue(s.charAt(1));
+        if (s == null || s.length() != 2) {
+            return null;
+        }
+
+        char fileChar = Character.toLowerCase(s.charAt(0));
+        char rankChar = s.charAt(1);
+        if (fileChar < 'a' || fileChar > 'h' || rankChar < '1' || rankChar > '8') {
+            return null;
+        }
+
+        int col = fileChar - 'a';
+        int row = 8 - Character.getNumericValue(rankChar);
+        if (!isInBounds(row, col)) {
+            return null;
+        }
         return new Point(row, col);
     }
 
     // Ask the CPP backend for the suggested move given the current board state
+    // Backward-compatible no-arg method: delegates to the new method with null callback
     public void generateSuggestedMove() {
-        String move = engine.BackendBridge.getSuggestedMove();
-        if (move != null && move.length() == 4) {
-            suggestedFrom = fromAlgebraic(move.substring(0, 2));
-            suggestedTo = fromAlgebraic(move.substring(2, 4));
-            repaint(); // "Refresh" to show the suggested move highlighted on board
+        generateSuggestedMove(null);
+    }
+
+    // New: accepts an optional callback to run on the EDT when the suggestion completes
+    public void generateSuggestedMove(Runnable onComplete) {
+        // If a suggestion request is already in progress, don't start another
+        synchronized (this) {
+            if (loadingSuggestedMove) return;
+            loadingSuggestedMove = true;
         }
+
+        Thread t = new Thread(() -> {
+            String move = null;
+            try {
+                try {
+                    move = engine.BackendBridge.getSuggestedMove();
+                } catch (Throwable tInner) {
+                    System.err.println("Error fetching suggested move from backend: " + tInner);
+                }
+
+                final String suggested = move; // final for use in EDT
+
+                SwingUtilities.invokeLater(() -> {
+                    try {
+                        if (suggested != null && suggested.length() == 4) {
+                            Point from = fromAlgebraic(suggested.substring(0, 2));
+                            Point to = fromAlgebraic(suggested.substring(2, 4));
+                            if (from != null && to != null) {
+                                suggestedFrom = from;
+                                suggestedTo = to;
+                            } else {
+                                suggestedFrom = null;
+                                suggestedTo = null;
+                            }
+                        } else {
+                            suggestedFrom = null;
+                            suggestedTo = null;
+                        }
+                        repaint();
+
+                        // Run completion callback if provided (still on EDT)
+                        if (onComplete != null) {
+                            try { onComplete.run(); } catch (Throwable cb) { System.err.println("suggested-move callback failed: " + cb); }
+                        }
+                    } finally {
+                        loadingSuggestedMove = false;
+                    }
+                });
+            } catch (Throwable outer) {
+                // Ensure flag cleared even if something unexpected happens
+                loadingSuggestedMove = false;
+                System.err.println("Unexpected error in suggested-move fetcher: " + outer);
+                // Run callback to allow caller to re-enable UI controls
+                if (onComplete != null) {
+                    try { SwingUtilities.invokeLater(onComplete); } catch (Throwable cb) { System.err.println("suggested-move callback failed: " + cb); }
+                }
+            }
+        }, "SuggestedMoveFetcher");
+        t.setDaemon(true);
+        t.start();
     }
 
     public void loadFEN(String fen) {
@@ -199,18 +336,25 @@ public class BoardPanel extends JPanel {
             return;
 
         String[] rows = parts[0].split("/");
+        if (rows.length != 8) {
+            return;
+        }
+
         for (int r = 0; r < 8; r++) {
             String row = rows[r];
             int c = 0;
             for (char ch : row.toCharArray()) {
                 if (Character.isDigit(ch)) {
                     int emptyCount = ch - '0';
-                    for (int i = 0; i < emptyCount; i++) {
+                    for (int i = 0; i < emptyCount && c < 8; i++) {
                         board[r][c++] = null;
                     }
-                } else {
+                } else if (c < 8) {
                     board[r][c++] = String.valueOf(ch);
                 }
+            }
+            while (c < 8) {
+                board[r][c++] = null;
             }
         }
 
@@ -226,6 +370,14 @@ public class BoardPanel extends JPanel {
         legalMoves.clear();
         suggestedFrom = null;
         suggestedTo = null;
+
+        // Invalidate cached moves when loading a new position
+        allMovesCache = null;
+
         repaint(); // Update the board with the new positions from the FEN string
+    }
+
+    private static boolean isInBounds(int row, int col) {
+        return row >= 0 && row < 8 && col >= 0 && col < 8;
     }
 }
