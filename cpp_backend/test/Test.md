@@ -6,7 +6,7 @@ Compiler Options: -std=c++17 -Wall -g -Icpp_backend/src cpp_backend/src/board.cp
 
 Working directory: /Volumes/Data/go/src/github.com/ftntming/ChessAlgo
 
-
+Parameter: /Volumes/Data/go/src/github.com/ftntming/ChessAlgo/cpp_backend/test/fen-files/chess_position.fen
 
 Why it was so slow before:
 Depth 8 vs Depth 4:
@@ -16,4 +16,7 @@ Speed difference: Depth 8 is roughly 100-1000x slower than depth 4
 Debug logging overhead:
 Even gated debug logs add checking overhead on every node
 With debug off, you get cleaner output and faster execution
+
+Result:
+![multi-thread.png](docs/images/multi-thread.png)
 

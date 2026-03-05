@@ -56,8 +56,9 @@ std::string moveToAlgebraic(const Move& m) {
 } // namespace
 
 int main(int argc, char* argv[]) {
+    // find current executable path to locate fen-files relative to it
     std::string fenFilePath = "fen-files/chess_position.fen";
-    int searchDepth = 4; // Default to depth 4 for reasonable speed
+    int searchDepth = 8; // Default to depth 4 for reasonable speed
 
     // Allow override from command line arguments
     if (argc > 1) {

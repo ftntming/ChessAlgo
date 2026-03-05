@@ -5,6 +5,11 @@
 #include <iostream>
 #include <chrono>
 #include <iomanip>
+#include <thread>
+#include <vector>
+#include <mutex>
+#include <atomic>
+#include <algorithm>
 
 #ifndef SEARCH_DEBUG_LOGS
 #define SEARCH_DEBUG_LOGS 0
@@ -12,6 +17,10 @@
 
 #ifndef SEARCH_PERF_LOGS
 #define SEARCH_PERF_LOGS 1
+#endif
+
+#ifndef SEARCH_PARALLEL
+#define SEARCH_PARALLEL 1
 #endif
 
 #if SEARCH_DEBUG_LOGS
@@ -51,10 +60,10 @@ namespace Search {
     Move findBestMove(Board& board, bool whiteToMove, int depth) {
         count = 0;
         time = 0;
-        auto start = std::chrono::high_resolution_clock::now(); // for testing
+        auto start = std::chrono::high_resolution_clock::now();
         std::vector<Move> legalMoves = generateSearchMoves(board, 0, whiteToMove);
-        auto end = std::chrono::high_resolution_clock::now(); // testing
-        time += std::chrono::duration<double>(end - start).count(); // testing
+        auto end = std::chrono::high_resolution_clock::now();
+        time += std::chrono::duration<double>(end - start).count();
 
         double moveGenTime = std::chrono::duration<double>(end - start).count();
         SEARCH_PERF(
@@ -62,28 +71,97 @@ namespace Search {
                       << std::fixed << std::setprecision(3) << (moveGenTime * 1000) << "ms\n";
         );
 
-        Evaluator evaluator;
-        int bestEval = -INF;
         if (legalMoves.empty()) {
             SEARCH_DEBUG(std::cerr << "[DEBUG] findBestMove: No legal moves available!\n";);
             return Move();
         }
-        Move bestMove = legalMoves[0];
 
         auto searchStart = std::chrono::high_resolution_clock::now();
+
+#if SEARCH_PARALLEL
+        // Parallel search: evaluate moves concurrently
+        const unsigned int numThreads = std::min(static_cast<unsigned int>(legalMoves.size()),
+                                                  std::max(1u, std::thread::hardware_concurrency()));
+
+        std::atomic<int> bestEval(-INF);
+        std::atomic<size_t> bestMoveIndex(0);
+        std::atomic<long long> totalNodes(0);
+        std::mutex evalMutex;
+
+        std::vector<int> moveEvals(legalMoves.size(), -INF);
+        std::vector<long long> moveNodeCounts(legalMoves.size(), 0);
+
+        auto workerFunction = [&](size_t startIdx, size_t endIdx) {
+            for (size_t i = startIdx; i < endIdx; ++i) {
+                Board localBoard = board; // Deep copy for thread safety
+                Evaluator evaluator;
+                long long localCount = 0;
+
+                localBoard.makeMove(legalMoves[i]);
+
+                // Save current global count, do local search, compute delta
+                long long countBefore = count;
+                int eval = -negamax(localBoard, depth - 1, -INF, INF, evaluator, depth);
+                long long nodesUsed = count - countBefore;
+
+                localBoard.undoMove();
+
+                moveEvals[i] = eval;
+                moveNodeCounts[i] = nodesUsed;
+                totalNodes.fetch_add(nodesUsed, std::memory_order_relaxed);
+
+                // Thread-safe best move update
+                std::lock_guard<std::mutex> lock(evalMutex);
+                int currentBest = bestEval.load(std::memory_order_relaxed);
+                if (eval > currentBest) {
+                    bestEval.store(eval, std::memory_order_relaxed);
+                    bestMoveIndex.store(i, std::memory_order_relaxed);
+                }
+            }
+        };
+
+        std::vector<std::thread> threads;
+        size_t movesPerThread = (legalMoves.size() + numThreads - 1) / numThreads;
+
+        for (unsigned int t = 0; t < numThreads; ++t) {
+            size_t startIdx = t * movesPerThread;
+            size_t endIdx = std::min(startIdx + movesPerThread, legalMoves.size());
+            if (startIdx < endIdx) {
+                threads.emplace_back(workerFunction, startIdx, endIdx);
+            }
+        }
+
+        for (auto& thread : threads) {
+            thread.join();
+        }
+
+        Move bestMove = legalMoves[bestMoveIndex.load()];
+        int finalBestEval = bestEval.load();
+        count = totalNodes.load(); // Update global count with parallel total
+
+        SEARCH_PERF(
+            std::cerr << "[PERF] Parallel threads: " << numThreads << "\n";
+        );
+
+#else
+        // Sequential search (original single-threaded)
+        Evaluator evaluator;
+        int bestEval = -INF;
+        Move bestMove = legalMoves[0];
+
         for (const Move& move : legalMoves) {
             board.makeMove(move);
             int eval = -negamax(board, depth - 1, -INF, INF, evaluator, depth);
             board.undoMove();
-
-            // For testing if needed: 
-            // std::cout<<move.fromRow<<" "<<move.fromCol<<" "<<move.toRow<<" "<<move.toCol<<" "<<eval<<std::endl;
 
             if (eval > bestEval) {
                 bestEval = eval;
                 bestMove = move;
             }
         }
+        int finalBestEval = bestEval;
+#endif
+
         auto searchEnd = std::chrono::high_resolution_clock::now();
         double searchTime = std::chrono::duration<double>(searchEnd - searchStart).count();
 
@@ -99,7 +177,7 @@ namespace Search {
             std::cerr << "[PERF] Time (negamax search): " << std::fixed << std::setprecision(3) << (searchTime * 1000) << "ms\n";
             std::cerr << "[PERF] Time (total): " << std::fixed << std::setprecision(3) << (totalTime * 1000) << "ms\n";
             std::cerr << "[PERF] Nodes per second: " << std::fixed << std::setprecision(0) << nodesPerSecond << "\n";
-            std::cerr << "[PERF] Best eval: " << bestEval << "\n";
+            std::cerr << "[PERF] Best eval: " << finalBestEval << "\n";
             std::cerr << "[PERF] Best move: " << (char)('a' + bestMove.fromCol) << (char)('8' - bestMove.fromRow)
                       << (char)('a' + bestMove.toCol) << (char)('8' - bestMove.toRow) << "\n";
             std::cerr << "[PERF] =====================================\n";
